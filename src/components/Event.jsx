@@ -51,7 +51,7 @@ const Meta = ({ e }) => (
   </div>
 );
 
-export function EventCard({ e, now, settings, index, hasReminder, onRemind }) {
+export function EventCard({ e, now, settings, index }) {
   const live = isLive(e, now);
   return (
     <article className={`card ${live ? 'is-live' : ''}`} style={{ '--i': Math.min(index, 12), '--sport': SPORTS[e.sport].color }}>
@@ -73,11 +73,6 @@ export function EventCard({ e, now, settings, index, hasReminder, onRemind }) {
         <Meta e={e} />
         {live && e.detail && <span className="muted">{e.detail}</span>}
       </div>
-      {!live && e.timeValid && (
-        <button className={`bell ${hasReminder ? 'on' : ''}`} onClick={() => onRemind(e)} aria-label={hasReminder ? 'Edit reminder' : 'Set reminder'}>
-          <Icon name={hasReminder ? 'bellOn' : 'bell'} />
-        </button>
-      )}
     </article>
   );
 }
@@ -89,7 +84,7 @@ const Digit = ({ v, label }) => (
   </div>
 );
 
-export function Hero({ e, settings, onRemind, hasReminder }) {
+export function Hero({ e, settings }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -113,9 +108,7 @@ export function Hero({ e, settings, onRemind, hasReminder }) {
         <Digit v={c.s} label="sec" />
       </div>
       <div className="hero-actions">
-        <button className="btn primary" onClick={() => onRemind(e)}>
-          <Icon name={hasReminder ? 'bellOn' : 'bell'} size={18} /> {hasReminder ? 'Reminder set' : 'Remind me'}
-        </button>
+        <span className="remind-note"><Icon name="bellOn" size={16} /> {settings.lead === 0 ? "We'll ping you at kickoff" : `We'll remind you ${settings.lead >= 60 ? settings.lead / 60 + "h" : settings.lead + " min"} before`}</span>
         <Meta e={e} />
       </div>
     </section>

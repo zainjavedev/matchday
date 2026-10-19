@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dayKey, dayLabel, timeLabel, zoneName, relative, countdownParts } from '../src/lib/time.js';
-import { leadsFor } from '../src/lib/notify.js';
 import { _internal } from '../src/lib/sources.js';
 
 const PSG_BARCA = Date.parse('2026-10-20T19:00:00Z');
@@ -87,11 +86,4 @@ test('F1 weekend expands to sessions, sprint included, in UTC', () => {
   assert.equal(evs.find((e) => e.session === 'Race').start, Date.parse('2026-10-25T20:00:00Z'));
   assert.equal(evs[0].practice, true);
   assert.ok(evs.slice(1).every((e) => !e.practice));
-});
-
-test('reminder leads merge manual picks with the default', () => {
-  const e = { id: 'x' };
-  assert.deepEqual(leadsFor(e, {}, 30, false), []);
-  assert.deepEqual(leadsFor(e, {}, 30, true), [30]);
-  assert.deepEqual(leadsFor(e, { x: [0, 30] }, 30, true).sort(), [0, 30]);
 });

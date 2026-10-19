@@ -9,7 +9,7 @@ const PATHS = { nba: 'basketball/nba', nfl: 'football/nfl', mlb: 'baseball/mlb',
 // Competitions a club plays in besides its domestic league. Unknown slugs 404 and are ignored.
 const EUROPE = ['uefa.champions', 'uefa.europa', 'uefa.europa.conf'];
 const CUPS = {
-  'eng.1': ['eng.fa', 'eng.league_cup'],
+  'eng.1': ['eng.league_cup'],
   'esp.1': ['esp.copa_del_rey'],
   'ita.1': ['ita.coppa_italia'],
   'ger.1': ['ger.dfb_pokal'],
@@ -17,7 +17,6 @@ const CUPS = {
   'por.1': ['por.taca.portugal'],
   'ned.1': ['ned.cup'],
   'usa.1': ['usa.open', 'concacaf.champions'],
-  'tur.1': ['tur.cup'],
 };
 
 const TTL = 30 * 60 * 1000;
