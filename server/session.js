@@ -21,7 +21,7 @@ export async function endSession() {
 
 export async function currentUser() {
   const token = (await cookies()).get(COOKIE)?.value;
-  return token ? userForSession(sha(token)) : null;
+  return token ? await userForSession(sha(token)) : null;
 }
 
 export const publicUser = (u) => ({ email: u.email, follows: u.follows, settings: u.settings });

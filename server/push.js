@@ -16,12 +16,12 @@ export const pushEnabled = () => configure();
 export async function pushToUser(userId, payload) {
   if (!configure()) return 0;
   let delivered = 0;
-  for (const r of pushForUser(userId)) {
+  for (const r of await pushForUser(userId)) {
     try {
       await webpush.sendNotification(r.sub, JSON.stringify(payload));
       delivered++;
     } catch (err) {
-      if (err.statusCode === 404 || err.statusCode === 410) removePush(r.endpoint);
+      if (err.statusCode === 404 || err.statusCode === 410) await removePush(r.endpoint);
       else console.error('push failed', err.statusCode ?? err.message);
     }
   }

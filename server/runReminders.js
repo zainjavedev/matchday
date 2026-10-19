@@ -22,7 +22,7 @@ export async function runReminders(opts = {}) {
   const mail = opts.mail ?? sendMail;
   const push = opts.push ?? pushToUser;
 
-  const users = usersWithFollows();
+  const users = await usersWithFollows();
   if (!users.length) return { users: 0, due: 0 };
 
   const follows = [...new Set(users.flatMap((u) => u.follows))];
@@ -30,7 +30,7 @@ export async function runReminders(opts = {}) {
 
   const candidates = dueReminders({ users, events, sent: new Set(), now });
   if (!candidates.length) return { users: users.length, due: 0 };
-  const already = sentAmong(candidates.map((c) => c.key));
+  const already = await sentAmong(candidates.map((c) => c.key));
   const due = candidates.filter((c) => !already.has(c.key));
 
   const byUser = new Map();

@@ -19,6 +19,6 @@ export async function DELETE(request) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
   const { endpoint } = await request.json().catch(() => ({}));
-  if (endpoint) removePush(endpoint, user.id);
+  if (endpoint) await removePush(endpoint, user.id);
   return NextResponse.json({ ok: true });
 }

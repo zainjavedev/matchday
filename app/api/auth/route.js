@@ -31,13 +31,13 @@ async function handle(request) {
 
   if (mode === 'signup') {
     if (!validPassword(password)) return fail('Password must be at least 8 characters.');
-    const user = createUser({ email, pwHash: await hashPassword(password) });
+    const user = await createUser({ email, pwHash: await hashPassword(password) });
     if (!user) return fail('That email already has an account — log in instead.', 409);
     await startSession(user.id);
     return NextResponse.json({ user: publicUser(user) });
   }
 
-  const user = findUserByEmail(email);
+  const user = await findUserByEmail(email);
   if (user && user.lockedUntil > Date.now()) return fail('Too many attempts. Try again in a few minutes.', 429);
   const ok = user ? await verifyPassword(String(password ?? ''), user.pwHash) : (await hashPassword('x'), false); // same work either way
   if (!ok) {

@@ -51,36 +51,36 @@ test('email + push content use the user\'s timezone and plain wording', () => {
   assert.match(pushPayload(ev('a', 20), NOW).body, /starts in 20 min/);
 });
 
-test('JSON store: users, sessions and push subscriptions persist to disk and survive a reload', () => {
-  const u = store.createUser({ email: 'a@x.com', pwHash: 'h' });
-  assert.equal(store.createUser({ email: 'a@x.com', pwHash: 'other' }), null, 'duplicate email rejected');
-  store.updateUser(u.id, { follows: ['nba:13'], settings: { lead: 60 } });
-  store.addSession('tok', u.id, Date.now() + 1000);
-  store.addSession('old', u.id, Date.now() - 1000);
-  assert.equal(store.userForSession('tok').email, 'a@x.com');
-  assert.equal(store.userForSession('old'), null, 'expired session ignored');
-  store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: {} });
-  store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: { a: 1 } });
-  assert.equal(store.pushForUser(u.id).length, 1, 'same endpoint is not duplicated');
+test('JSON store: users, sessions and push subscriptions persist to disk and survive a reload', async () => {
+  const u = await store.createUser({ email: 'a@x.com', pwHash: 'h' });
+  assert.equal(await store.createUser({ email: 'a@x.com', pwHash: 'other' }), null, 'duplicate email rejected');
+  await store.updateUser(u.id, { follows: ['nba:13'], settings: { lead: 60 } });
+  await store.addSession('tok', u.id, Date.now() + 1000);
+  await store.addSession('old', u.id, Date.now() - 1000);
+  assert.equal((await store.userForSession('tok')).email, 'a@x.com');
+  assert.equal(await store.userForSession('old'), null, 'expired session ignored');
+  await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: {} });
+  await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: { a: 1 } });
+  assert.equal((await store.pushForUser(u.id)).length, 1, 'same endpoint is not duplicated');
 
   store.resetStore(); // simulate a server restart: reload from the file
-  assert.deepEqual(store.findUserByEmail('a@x.com').follows, ['nba:13']);
-  assert.equal(store.userForSession('tok').id, u.id);
+  assert.deepEqual((await store.findUserByEmail('a@x.com')).follows, ['nba:13']);
+  assert.equal((await store.userForSession('tok')).id, u.id);
   assert.equal(JSON.parse(fs.readFileSync(DATA, 'utf8')).users.length, 1);
 
-  store.removeSession('tok');
-  assert.equal(store.userForSession('tok'), null);
+  await store.removeSession('tok');
+  assert.equal(await store.userForSession('tok'), null);
   fs.writeFileSync(DATA, '{not json');
   store.resetStore();
-  assert.throws(() => store.findUserByEmail('a@x.com'), /Could not read/, 'a corrupt file is an error, never silently emptied');
+  await assert.rejects(() => store.findUserByEmail('a@x.com'), /Could not read/, 'a corrupt file is an error, never silently emptied');
   fs.rmSync(DATA);
   store.resetStore();
 });
 
 test('runReminders against the store: delivers once, honours email-off, retries failures', async () => {
   for (const [email, follows, settings] of [['on@x.com', ['nba:13'], { lead: 30 }], ['off@x.com', ['nba:13'], { email: false }], ['none@x.com', [], {}]]) {
-    const u = store.createUser({ email, pwHash: 'h' });
-    store.updateUser(u.id, { follows, settings });
+    const u = await store.createUser({ email, pwHash: 'h' });
+    await store.updateUser(u.id, { follows, settings });
   }
   const mails = [];
   const opts = { now: NOW, events: [ev('g1', 20)], mail: async (m) => mails.push(m.to), push: async () => 0 };
@@ -100,4 +100,102 @@ test('runReminders against the store: delivers once, honours email-off, retries 
   await runReminders(flaky);
   assert.equal(calls, 2, 'retried after failure');
   fs.rmSync(DATA, { force: true });
+});
+
+test('Redis store: same behaviour as the file store, against a fake Upstash server', async () => {
+  const kv = new Map();
+  const hash = (k) => kv.get(k) ?? kv.set(k, new Map()).get(k);
+  const run = ([c, k, ...a]) => {
+    switch (c) {
+      case 'GET': return kv.get(k) ?? null;
+      case 'SET': if (a[1] === 'NX' && kv.has(k)) return null; kv.set(k, a[0]); return 'OK';
+      case 'INCR': kv.set(k, String(Number(kv.get(k) ?? 0) + 1)); return Number(kv.get(k));
+      case 'DEL': kv.delete(k); return 1;
+      case 'SADD': kv.set(k, [...new Set([...(kv.get(k) ?? []), a[0]])]); return 1;
+      case 'SMEMBERS': return kv.get(k) ?? [];
+      case 'MGET': return [k, ...a].map((x) => kv.get(x) ?? null);
+      case 'HSET': for (let i = 0; i < a.length; i += 2) hash(k).set(a[i], a[i + 1]); return 1;
+      case 'HGET': return hash(k).get(a[0]) ?? null;
+      case 'HMGET': return a.map((f) => hash(k).get(f) ?? null);
+      case 'HVALS': return [...hash(k).values()];
+      case 'HGETALL': return [...hash(k)].flat();
+      case 'HDEL': for (const f of a) hash(k).delete(f); return 1;
+      default: throw new Error(`fake redis: ${c}`);
+    }
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => ({ ok: true, json: async () => ({ result: run(JSON.parse(init.body)) }) });
+  process.env.KV_REST_API_URL = 'https://fake';
+  process.env.KV_REST_API_TOKEN = 't';
+  try {
+    assert.equal(store.storeKind(), 'redis');
+    const u = await store.createUser({ email: 'r@x.com', pwHash: 'h' });
+    assert.equal(await store.createUser({ email: 'r@x.com', pwHash: 'o' }), null, 'duplicate email rejected');
+    await store.updateUser(u.id, { follows: ['nba:13'] });
+    assert.deepEqual((await store.findUserByEmail('r@x.com')).follows, ['nba:13']);
+    assert.equal((await store.usersWithFollows()).length, 1);
+    await store.addSession('tok', u.id, Date.now() + 5000);
+    assert.equal((await store.userForSession('tok')).id, u.id);
+    await store.removeSession('tok');
+    assert.equal(await store.userForSession('tok'), null);
+    await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: {} });
+    await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: { a: 1 } });
+    assert.equal((await store.pushForUser(u.id)).length, 1);
+    await store.removePush('https://p/1', u.id + 99); // someone else's device: ignored
+    assert.equal((await store.pushForUser(u.id)).length, 1);
+    await store.removePush('https://p/1', u.id);
+    assert.equal((await store.pushForUser(u.id)).length, 0);
+    await store.markSent(['a', 'b'], 100);
+    assert.deepEqual([...(await store.sentAmong(['a', 'c']))], ['a']);
+    await store.pruneSent(200);
+    assert.equal((await store.sentAmong(['a', 'b'])).size, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+  }
+});
+
+test('Blob store: same behaviour again, against an in-memory fake of @vercel/blob', async () => {
+  const files = new Map();
+  const fake = {
+    async get(p) { return files.has(p) ? { statusCode: 200, stream: new Response(files.get(p).body).body } : null; },
+    async put(p, body, o) {
+      if (files.has(p) && !o.allowOverwrite) throw new Error(`This blob already exists: ${p}`);
+      files.set(p, { body, uploadedAt: new Date(files.get(p)?.uploadedAt ?? Date.now()) });
+      return { pathname: p };
+    },
+    async del(ps) { for (const p of [ps].flat()) files.delete(p); },
+    async list({ prefix }) { return { hasMore: false, blobs: [...files].filter(([p]) => p.startsWith(prefix)).map(([pathname, f]) => ({ pathname, uploadedAt: f.uploadedAt })) }; },
+  };
+  store.useBlobClient(fake);
+  process.env.BLOB_READ_WRITE_TOKEN = 'rw_fake';
+  try {
+    assert.equal(store.storeKind(), 'blob');
+    const u = await store.createUser({ email: 'b@x.com', pwHash: 'h' });
+    assert.equal(await store.createUser({ email: 'b@x.com', pwHash: 'o' }), null, 'duplicate email rejected');
+    await store.updateUser(u.id, { follows: ['nba:13'] });
+    assert.deepEqual((await store.findUserByEmail('b@x.com')).follows, ['nba:13']);
+    assert.equal((await store.usersWithFollows()).length, 1);
+    await store.addSession('tok', u.id, Date.now() + 5000);
+    await store.addSession('old', u.id, Date.now() - 1000);
+    assert.equal((await store.userForSession('tok')).id, u.id);
+    assert.equal(await store.userForSession('old'), null, 'expired session ignored');
+    await store.removeSession('tok');
+    assert.equal(await store.userForSession('tok'), null);
+    await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: {} });
+    await store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: { a: 1 } });
+    assert.equal((await store.pushForUser(u.id)).length, 1);
+    await store.removePush('https://p/1', 'someone-else');
+    assert.equal((await store.pushForUser(u.id)).length, 1);
+    await store.removePush('https://p/1', u.id);
+    assert.equal((await store.pushForUser(u.id)).length, 0);
+    await store.markSent(['a', 'b'], 100);
+    assert.deepEqual([...(await store.sentAmong(['a', 'c']))], ['a']);
+    await store.pruneSent(Date.now() + 1000);
+    assert.equal((await store.sentAmong(['a', 'b'])).size, 0);
+  } finally {
+    store.useBlobClient(undefined);
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+  }
 });

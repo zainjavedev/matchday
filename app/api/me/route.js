@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
-  return NextResponse.json({ user: publicUser(user), push: { configured: pushEnabled(), anyDevice: pushForUser(user.id).length > 0 } });
+  return NextResponse.json({ user: publicUser(user), push: { configured: pushEnabled(), anyDevice: (await pushForUser(user.id)).length > 0 } });
 }
 
 export async function PUT(request) {
