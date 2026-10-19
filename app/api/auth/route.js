@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { q } from '../../../server/db.js';
+import { createUser, findUserByEmail, updateUser } from '../../../server/store.js';
 import { hashPassword, normEmail, validEmail, validPassword, verifyPassword } from '../../../server/password.js';
 import { endSession, publicUser, startSession } from '../../../server/session.js';
 export const runtime = "nodejs";
@@ -10,6 +10,15 @@ const LOCK_AFTER = 8;
 const LOCK_MS = 15 * 60000;
 
 export async function POST(request) {
+  try {
+    return await handle(request);
+  } catch (err) {
+    console.error('[auth]', err);
+    return fail(err.message?.startsWith('This app stores') ? err.message : 'The server could not save your account. Try again in a moment.', 500);
+  }
+}
+
+async function handle(request) {
   let body;
   try {
     body = await request.json();
@@ -22,25 +31,23 @@ export async function POST(request) {
 
   if (mode === 'signup') {
     if (!validPassword(password)) return fail('Password must be at least 8 characters.');
-    const hash = await hashPassword(password);
-    const { rows } = await q('INSERT INTO users (email, pw_hash, created_at) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id, email, follows, settings', [email, hash, Date.now()]);
-    if (!rows[0]) return fail('That email already has an account — log in instead.', 409);
-    await startSession(rows[0].id);
-    return NextResponse.json({ user: publicUser(rows[0]) });
+    const user = createUser({ email, pwHash: await hashPassword(password) });
+    if (!user) return fail('That email already has an account — log in instead.', 409);
+    await startSession(user.id);
+    return NextResponse.json({ user: publicUser(user) });
   }
 
-  const { rows } = await q('SELECT * FROM users WHERE email = $1', [email]);
-  const user = rows[0];
-  if (user && user.locked_until > Date.now()) return fail('Too many attempts. Try again in a few minutes.', 429);
-  const ok = user ? await verifyPassword(String(password ?? ''), user.pw_hash) : (await hashPassword('x'), false); // same work either way
+  const user = findUserByEmail(email);
+  if (user && user.lockedUntil > Date.now()) return fail('Too many attempts. Try again in a few minutes.', 429);
+  const ok = user ? await verifyPassword(String(password ?? ''), user.pwHash) : (await hashPassword('x'), false); // same work either way
   if (!ok) {
     if (user) {
-      const fails = user.fail_count + 1;
-      await q('UPDATE users SET fail_count = $1, locked_until = $2 WHERE id = $3', [fails % LOCK_AFTER, fails >= LOCK_AFTER ? Date.now() + LOCK_MS : 0, user.id]);
+      const fails = user.failCount + 1;
+      updateUser(user.id, { failCount: fails % LOCK_AFTER, lockedUntil: fails >= LOCK_AFTER ? Date.now() + LOCK_MS : 0 });
     }
     return fail('Wrong email or password.', 401);
   }
-  await q('UPDATE users SET fail_count = 0, locked_until = 0 WHERE id = $1', [user.id]);
+  updateUser(user.id, { failCount: 0, lockedUntil: 0 });
   await startSession(user.id);
   return NextResponse.json({ user: publicUser(user) });
 }

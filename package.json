@@ -13,9 +13,7 @@
     "vapid": "node scripts/vapid.mjs"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.10",
     "next": "^15.5.28",
-    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "web-push": "^3.6.7"

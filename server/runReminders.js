@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { q } from './db.js';
+import { markSent, pruneSent, sentAmong, usersWithFollows } from './store.js';
 import { sendMail } from './mailer.js';
 import { pushToUser } from './push.js';
 import { dueReminders, emailFor, pushPayload } from './reminders.js';
@@ -22,7 +22,7 @@ export async function runReminders(opts = {}) {
   const mail = opts.mail ?? sendMail;
   const push = opts.push ?? pushToUser;
 
-  const { rows: users } = await q(`SELECT id, email, follows, settings FROM users WHERE jsonb_array_length(follows) > 0`);
+  const users = usersWithFollows();
   if (!users.length) return { users: 0, due: 0 };
 
   const follows = [...new Set(users.flatMap((u) => u.follows))];
@@ -30,8 +30,7 @@ export async function runReminders(opts = {}) {
 
   const candidates = dueReminders({ users, events, sent: new Set(), now });
   if (!candidates.length) return { users: users.length, due: 0 };
-  const { rows } = await q('SELECT key FROM sent WHERE key = ANY($1)', [candidates.map((c) => c.key)]);
-  const already = new Set(rows.map((r) => r.key));
+  const already = sentAmong(candidates.map((c) => c.key));
   const due = candidates.filter((c) => !already.has(c.key));
 
   const byUser = new Map();
@@ -57,9 +56,9 @@ export async function runReminders(opts = {}) {
     }
     // Keep it retryable only if email was the sole way to reach them and it failed.
     if (!emailFailed || pushed > 0) {
-      for (const { key } of items) await q('INSERT INTO sent (key, at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [key, now]);
+      markSent(items.map((i) => i.key), now);
     }
   }
-  await q('DELETE FROM sent WHERE at < $1', [now - 7 * 86400000]);
+  pruneSent(now - 7 * 86400000);
   return { users: users.length, due: due.length, emails, pushes };
 }

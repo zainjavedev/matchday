@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-process.env.PGLITE_DIR = 'memory://';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+const DATA = path.join(os.tmpdir(), `matchday-test-${process.pid}.json`);
+process.env.DATA_FILE = DATA;
 const { hashPassword, verifyPassword, normEmail, validEmail, validPassword } = await import('../server/password.js');
 const { cleanFollows, cleanSettings } = await import('../server/validate.js');
 const { dueReminders, emailFor, pushPayload } = await import('../server/reminders.js');
-const { q, db } = await import('../server/db.js');
+const store = await import('../server/store.js');
 const { runReminders } = await import('../server/runReminders.js');
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
@@ -47,14 +51,39 @@ test('email + push content use the user\'s timezone and plain wording', () => {
   assert.match(pushPayload(ev('a', 20), NOW).body, /starts in 20 min/);
 });
 
-test('runReminders against a real database: delivers once, honours email-off, retries failures', async () => {
-  await q(`INSERT INTO users (email, pw_hash, follows, settings, created_at) VALUES
-    ('on@x.com','h','["nba:13"]','{"lead":30}',1),
-    ('off@x.com','h','["nba:13"]','{"email":false}',1),
-    ('none@x.com','h','[]','{}',1)`);
+test('JSON store: users, sessions and push subscriptions persist to disk and survive a reload', () => {
+  const u = store.createUser({ email: 'a@x.com', pwHash: 'h' });
+  assert.equal(store.createUser({ email: 'a@x.com', pwHash: 'other' }), null, 'duplicate email rejected');
+  store.updateUser(u.id, { follows: ['nba:13'], settings: { lead: 60 } });
+  store.addSession('tok', u.id, Date.now() + 1000);
+  store.addSession('old', u.id, Date.now() - 1000);
+  assert.equal(store.userForSession('tok').email, 'a@x.com');
+  assert.equal(store.userForSession('old'), null, 'expired session ignored');
+  store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: {} });
+  store.upsertPush('https://p/1', u.id, { endpoint: 'https://p/1', keys: { a: 1 } });
+  assert.equal(store.pushForUser(u.id).length, 1, 'same endpoint is not duplicated');
+
+  store.resetStore(); // simulate a server restart: reload from the file
+  assert.deepEqual(store.findUserByEmail('a@x.com').follows, ['nba:13']);
+  assert.equal(store.userForSession('tok').id, u.id);
+  assert.equal(JSON.parse(fs.readFileSync(DATA, 'utf8')).users.length, 1);
+
+  store.removeSession('tok');
+  assert.equal(store.userForSession('tok'), null);
+  fs.writeFileSync(DATA, '{not json');
+  store.resetStore();
+  assert.throws(() => store.findUserByEmail('a@x.com'), /Could not read/, 'a corrupt file is an error, never silently emptied');
+  fs.rmSync(DATA);
+  store.resetStore();
+});
+
+test('runReminders against the store: delivers once, honours email-off, retries failures', async () => {
+  for (const [email, follows, settings] of [['on@x.com', ['nba:13'], { lead: 30 }], ['off@x.com', ['nba:13'], { email: false }], ['none@x.com', [], {}]]) {
+    const u = store.createUser({ email, pwHash: 'h' });
+    store.updateUser(u.id, { follows, settings });
+  }
   const mails = [];
-  const pushes = [];
-  const opts = { now: NOW, events: [ev('g1', 20)], mail: async (m) => mails.push(m.to), push: async (id) => (pushes.push(id), 0) };
+  const opts = { now: NOW, events: [ev('g1', 20)], mail: async (m) => mails.push(m.to), push: async () => 0 };
 
   const r1 = await runReminders(opts);
   assert.deepEqual(mails, ['on@x.com']); // email-off user skipped, empty-follows user ignored
@@ -63,12 +92,12 @@ test('runReminders against a real database: delivers once, honours email-off, re
   assert.equal(mails.length, 1, 'no duplicate on the next run');
   assert.equal(r2.due, 0);
 
-  // failure: email fails and no push device -> not marked sent, retried
+  // email fails and there is no push device -> not marked sent, so it is retried
   let calls = 0;
   const flaky = { ...opts, events: [ev('g2', 20)], mail: async () => { if (calls++ === 0) throw new Error('smtp down'); } };
   await runReminders(flaky);
-  assert.equal((await q(`SELECT count(*)::int AS n FROM sent WHERE key LIKE '%:g2:%'`)).rows[0].n, 1); // only the email-off user's
+  assert.equal(calls, 1);
   await runReminders(flaky);
   assert.equal(calls, 2, 'retried after failure');
-  await (await db()).close();
+  fs.rmSync(DATA, { force: true });
 });

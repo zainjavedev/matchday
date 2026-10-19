@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import { q } from './db.js';
+import { pushForUser, removePush } from './store.js';
 
 let ready;
 const configure = () => {
@@ -15,14 +15,13 @@ export const pushEnabled = () => configure();
 // Returns how many devices got it. Dead subscriptions (404/410) are removed.
 export async function pushToUser(userId, payload) {
   if (!configure()) return 0;
-  const { rows } = await q('SELECT endpoint, sub FROM push_subs WHERE user_id = $1', [userId]);
   let delivered = 0;
-  for (const r of rows) {
+  for (const r of pushForUser(userId)) {
     try {
       await webpush.sendNotification(r.sub, JSON.stringify(payload));
       delivered++;
     } catch (err) {
-      if (err.statusCode === 404 || err.statusCode === 410) await q('DELETE FROM push_subs WHERE endpoint = $1', [r.endpoint]);
+      if (err.statusCode === 404 || err.statusCode === 410) removePush(r.endpoint);
       else console.error('push failed', err.statusCode ?? err.message);
     }
   }
