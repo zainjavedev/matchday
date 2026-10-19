@@ -1,0 +1,16 @@
+name = "matchday-worker"
+main = "index.js"
+compatibility_date = "2026-01-01"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "REPLACE_WITH_KV_ID"   # npx wrangler kv namespace create SUBS
+
+[vars]
+SITE_URL = "https://your-matchday-site.example"   # no trailing slash
+API_URL = "https://matchday-worker.YOUR-SUBDOMAIN.workers.dev"
+FROM_EMAIL = "Matchday <onboarding@resend.dev>"
+# Secret, set with: npx wrangler secret put RESEND_API_KEY
