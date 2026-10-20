@@ -120,7 +120,7 @@ main { width: min(760px, 100% - 32px); margin: 0 auto; padding-top: 8px; }
 
 /* ---------- Hero ---------- */
 .hero { position: relative; overflow: hidden; margin: 14px 0 22px; padding: 22px 20px 20px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); isolation: isolate; animation: rise 0.7s var(--ease) both; }
-.hero-glow { position: absolute; inset: -40% -20% auto; height: 120%; z-index: -1; opacity: 0.38; filter: blur(60px); background: radial-gradient(40% 50% at 25% 40%, var(--g1), transparent 70%), radial-gradient(40% 50% at 75% 40%, var(--g2), transparent 70%); animation: drift 10s ease-in-out infinite alternate; }
+.hero-glow { transform: translateZ(0); contain: paint; position: absolute; inset: -40% -20% auto; height: 120%; z-index: -1; opacity: 0.38; filter: blur(60px); background: radial-gradient(40% 50% at 25% 40%, var(--g1), transparent 70%), radial-gradient(40% 50% at 75% 40%, var(--g2), transparent 70%); animation: drift 10s ease-in-out infinite alternate; }
 .eyebrow { font: 700 12px/1 var(--body); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 14px; }
 .hero .matchup { justify-content: center; gap: 18px; }
 .hero .side { flex-direction: column; gap: 8px; text-align: center; }
@@ -133,7 +133,6 @@ main { width: min(760px, 100% - 32px); margin: 0 auto; padding-top: 8px; }
 .countdown { display: flex; justify-content: center; gap: 10px; margin: 16px 0 18px; }
 .cd { min-width: 64px; padding: 10px 6px 8px; text-align: center; border-radius: var(--r-md); background: color-mix(in srgb, var(--bg) 55%, transparent); border: 1px solid var(--line); }
 .cd b { display: block; font: 800 34px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
-.cd .tick { animation: tick 0.35s var(--ease); }
 .cd span { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
 .hero-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .hero-actions .meta { justify-content: center; }

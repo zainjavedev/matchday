@@ -2,11 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { F1_TEAM, SPORTS, SPORT_ORDER } from './lib/sports.js';
 import { loadEvents } from './lib/sources.js';
 import { DEFAULT_SETTINGS, useLocal } from './lib/store.js';
-import { dayKey, dayLabel, deviceZone, timeLabel, zoneCity } from './lib/time.js';
+import { dayKey, dayLabel, timeLabel, zoneCity } from './lib/time.js';
 import { readShared } from './lib/share.js';
 import { EventCard, Hero, isLive } from './components/Event.jsx';
 import { Picker } from './components/Picker.jsx';
-import { Gate } from './components/Gate.jsx';
 import { Settings } from './components/Settings.jsx';
 import { Icon, Logo } from './components/ui.jsx';
 
@@ -24,9 +23,9 @@ function useNow(ms) {
 
 export default function App() {
   const [teams, setTeams] = useState([]);
-  const [auth, setAuth] = useState({ status: 'loading', email: '', push: {} });
-  const [follows, setFollows] = useState([]);
-  const [stored, setSettings] = useState(DEFAULT_SETTINGS);
+  // No accounts: the lineup and settings live in this browser's localStorage.
+  const [follows, setFollows] = useLocal('md.follows', []);
+  const [stored, setSettings] = useLocal('md.settings', {});
   const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...stored }), [stored]);
   const [events, setEvents] = useState([]);
   const [status, setStatus] = useState({ loading: false, errors: [] });
@@ -59,50 +58,10 @@ export default function App() {
     } catch {}
   }, [settings.theme]);
 
-  // Account: load once, then save follows/settings back whenever they change.
-  const applyUser = useCallback((user, push) => {
-    setFollows(user.follows ?? []);
-    setSettings({ ...DEFAULT_SETTINGS, ...user.settings });
-    lastSaved.current = JSON.stringify({ f: user.follows ?? [], s: { ...DEFAULT_SETTINGS, ...user.settings } });
-    setAuth({ status: 'in', email: user.email, push: push ?? {} });
-  }, []);
-  const lastSaved = useRef('');
-
-  useEffect(() => {
-    fetch('/api/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => (d ? applyUser(d.user, d.push) : setAuth({ status: 'anon', email: '', push: {} })))
-      .catch(() => setAuth({ status: 'anon', email: '', push: {} }));
-  }, [applyUser]);
-
-  useEffect(() => {
-    if (auth.status !== 'in') return;
-    const snapshot = JSON.stringify({ f: follows, s: settings });
-    if (snapshot === lastSaved.current) return;
-    const t = setTimeout(() => {
-      fetch('/api/me', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ follows, settings: { ...settings, tzDevice: deviceZone() } }) })
-        .then((r) => {
-          if (r.ok) lastSaved.current = snapshot;
-          else if (r.status === 401) setAuth({ status: 'anon', email: '', push: {} });
-        })
-        .catch(() => {});
-    }, 500);
-    return () => clearTimeout(t);
-  }, [auth.status, follows, settings]);
-
-  const logout = async () => {
-    await fetch('/api/auth', { method: 'DELETE' });
-    setFollows([]);
-    setEvents([]);
-    setSettings(DEFAULT_SETTINGS);
-    setSheet(null);
-    setAuth({ status: 'anon', email: '', push: {} });
-  };
-
   // Load schedules whenever the lineup changes, and refresh when the tab becomes visible again.
   const reqId = useRef(0);
   const refresh = useCallback(async () => {
-    if (auth.status !== 'in' || !follows.length || !teamsById.size) {
+    if (!follows.length || !teamsById.size) {
       setEvents([]);
       return;
     }
@@ -112,7 +71,7 @@ export default function App() {
     if (id !== reqId.current) return;
     setEvents(evs);
     setStatus({ loading: false, errors });
-  }, [auth.status, follows, teamsById]);
+  }, [follows, teamsById]);
 
   useEffect(() => {
     refresh();
@@ -157,18 +116,6 @@ export default function App() {
       if (!on) navigator.vibrate?.(8);
       return on ? f.filter((x) => x !== id) : [...f, id];
     });
-
-  if (auth.status === 'loading') return <div className="boot" aria-busy="true"><img src="/icon.svg" width="56" height="56" alt="Loading" /></div>;
-  if (auth.status === 'anon') {
-    return (
-      <Gate
-        onAuthed={(user) =>
-          // The login response has no push status; fetch it so Settings shows the right thing.
-          fetch('/api/me').then((r) => r.json()).then((d) => applyUser(d.user, d.push)).catch(() => applyUser(user))
-        }
-      />
-    );
-  }
 
   const empty = follows.length === 0;
   const sharedNew = shared.filter((id) => teamsById.has(id) && !follows.includes(id));
@@ -248,8 +195,7 @@ export default function App() {
 
       {sheet?.type === 'picker' && <Picker teams={teams} follows={follows} onToggle={toggleFollow} startTab={sheet.tab} onClose={() => setSheet(null)} />}
       {sheet?.type === 'settings' && (
-        <Settings settings={settings} setSettings={setSettings} follows={follows} email={auth.email} push={auth.push} toast={toast} onClose={() => setSheet(null)}
-          onLogout={logout} onReset={() => setFollows([])} />
+        <Settings settings={settings} setSettings={setSettings} follows={follows} toast={toast} onClose={() => setSheet(null)} onReset={() => setFollows([])} />
       )}
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
     </div>
@@ -268,7 +214,7 @@ function Welcome({ teams, onPick }) {
         })}
       </div>
       <h1>Never miss <em>kickoff</em> again.</h1>
-      <p className="lede">Pick the teams you love. Every game lands in one timeline, in your own timezone, with a nudge before it starts.</p>
+      <p className="lede">Pick the teams you love. Every game lands in one timeline, in your own timezone. No account needed.</p>
       <button className="btn primary big" onClick={() => onPick('soccer')}>Choose your teams</button>
       <div className="sport-tiles">
         {SPORT_ORDER.map((s, i) => (

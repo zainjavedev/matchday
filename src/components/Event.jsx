@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AWAY_FIRST, F1_TEAM, SPORTS } from '../lib/sports.js';
 import { countdownParts, dateTimeLabel, relative, timeLabel, zoneName } from '../lib/time.js';
-import { Icon, Logo } from './ui.jsx';
+import { Logo } from './ui.jsx';
 
 export const isLive = (e, now) => e.timeValid && e.state !== 'post' && (e.state === 'in' || (e.start <= now && now < e.end));
 
@@ -79,18 +79,30 @@ export function EventCard({ e, now, settings, index }) {
 
 const Digit = ({ v, label }) => (
   <div className="cd">
-    <b key={v} className="tick">{String(v).padStart(2, '0')}</b>
+    <b>{String(v).padStart(2, '0')}</b>
     <span>{label}</span>
   </div>
 );
 
-export function Hero({ e, settings }) {
+// Only this block re-renders each second, so the logos and the glow behind them stay put.
+function Countdown({ start }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const c = countdownParts(e.start - now);
+  const c = countdownParts(start - now);
+  return (
+    <div className="countdown" role="timer" aria-label={`Starts in ${c.d} days ${c.h} hours ${c.m} minutes`}>
+      {c.d > 0 && <Digit v={c.d} label="days" />}
+      <Digit v={c.h} label="hrs" />
+      <Digit v={c.m} label="min" />
+      <Digit v={c.s} label="sec" />
+    </div>
+  );
+}
+
+export function Hero({ e, settings }) {
   const [a, b] = e.kind === 'match' ? orderSides(e) : [];
   const glow = [a?.color, b?.color].filter(Boolean);
   return (
@@ -101,14 +113,8 @@ export function Hero({ e, settings }) {
       <p className="hero-when">
         {dateTimeLabel(e.start, settings)} <span className="muted">· {zoneName(e.start, settings)}</span>
       </p>
-      <div className="countdown" role="timer" aria-label={`Starts in ${c.d} days ${c.h} hours ${c.m} minutes`}>
-        {c.d > 0 && <Digit v={c.d} label="days" />}
-        <Digit v={c.h} label="hrs" />
-        <Digit v={c.m} label="min" />
-        <Digit v={c.s} label="sec" />
-      </div>
+      <Countdown start={e.start} />
       <div className="hero-actions">
-        <span className="remind-note"><Icon name="bellOn" size={16} /> {settings.lead === 0 ? "We'll ping you at kickoff" : `We'll remind you ${settings.lead >= 60 ? settings.lead / 60 + "h" : settings.lead + " min"} before`}</span>
         <Meta e={e} />
       </div>
     </section>
